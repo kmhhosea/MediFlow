@@ -2,6 +2,17 @@
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { signUpSchema } from '@/lib/validations/auth';
+import { requireRole } from '@/lib/rbac';
+import { updateClinicSchema } from '@/lib/validations/clinic';
+import { revalidatePath } from 'next/cache';
+
+export async function updateClinic(input: unknown) {
+  const session = await requireRole(['ADMIN']);
+  const data = updateClinicSchema.parse(input);
+  await db.clinic.update({ where: { id: session.user.clinicId }, data });
+  revalidatePath('/settings');
+}
+
 
 function slugify(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');

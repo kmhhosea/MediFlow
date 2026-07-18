@@ -1,6 +1,15 @@
 'use client';
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { db } from '@/lib/db';
+import { getCurrentClinicId } from '@/lib/auth-context';
+import { ClinicSettingsForm } from '@/components/clinic/clinic-settings-form';
+
+export default async function SettingsPage() {
+  const clinic = await db.clinic.findUniqueOrThrow({ where: { id: await getCurrentClinicId() } });
+  return <ClinicSettingsForm clinic={clinic} />;
+}
+
 
 function EnrollMfaForm({ qr, onEnroll }: { qr: string | null; onEnroll: () => void }) {
   const [code, setCode] = useState('');
