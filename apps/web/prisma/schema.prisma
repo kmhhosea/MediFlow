@@ -3,6 +3,8 @@
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +12,384 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Better Auth core tables — required by the Prisma adapter regardless of your
+// own domain models. Field names/types follow Better Auth's expected schema.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          String?
+  clinicId      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions    Session[]
+  accounts    Account[]
+  twoFactors  TwoFactor[]
+  staffMember StaffMember?
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verification")
+}
+
+model TwoFactor {
+  id          String @id @default(cuid())
+  secret      String
+  backupCodes String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("twoFactor")
+}
+
+// ---------------------------------------------------------------------------
+// Domain models
+// ---------------------------------------------------------------------------
+
+model Clinic {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  subscriptionPlan String        @default("solo")
+  status           String        @default("trial")
+  createdAt        DateTime      @default(now())
+  locations        Location[]
+  staff            StaffMember[]
+  patients         Patient[]
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+  name      String
+  address   String
+  timezone  String   @default("America/New_York")
+  createdAt DateTime @default(now())
+}
+
+model StaffMember {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  clinicId  String
+  clinic    Clinic    @relation(fields: [clinicId], references: [id])
+  role      StaffRole
+  npiNumber String?
+  specialty String?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  // edit
+  availabilitySlots AvailabilitySlot[]
+  appointments      Appointment[]
+}
+
+enum StaffRole {
+  ADMIN
+  PROVIDER
+  NURSE
+  FRONT_DESK
+  BILLING
+}
+
+
+model Patient {
+  id                 String    @id @default(cuid())
+  clinicId           String
+  clinic             Clinic    @relation(fields: [clinicId], references: [id])
+  firstName          String
+  lastName           String
+  dob                DateTime
+  sex                String
+  phone              String?
+  email              String?
+  insuranceProvider  String?
+  insuranceMemberId  String?
+  emergencyContact   Json?
+  createdAt          DateTime  @default(now())
+
+  //edit
+  appointments  Appointment[]
+  prescriptions Prescription[]
+  labResults    LabResult[]
+  documents     Document[]
+  invoices      Invoice[]
+
+  @@index([clinicId, lastName, firstName])
+}
+
+
+model AvailabilitySlot {
+  id         String   @id @default(cuid())
+  staffId    String
+  staff      StaffMember @relation(fields: [staffId], references: [id])
+  startsAt   DateTime
+  endsAt     DateTime
+  isBooked   Boolean  @default(false)
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  clinicId    String
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  staffId     String
+  staff       StaffMember @relation(fields: [staffId], references: [id])
+  locationId  String
+  startsAt    DateTime
+  endsAt      DateTime
+  status      AppointmentStatus @default(SCHEDULED)
+  visitType   VisitType @default(IN_PERSON)
+  reason      String?
+  createdAt   DateTime @default(now())
+  // edit 
+  clinicalNote ClinicalNote?
+
+  @@index([clinicId, startsAt])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CHECKED_IN
+  IN_PROGRESS
+  COMPLETED
+  CANCELED
+  NO_SHOW
+}
+
+enum VisitType {
+  IN_PERSON
+  TELEHEALTH
+}
+
+
+model ClinicalNote {
+  id            String    @id @default(cuid())
+  appointmentId String    @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  subjective    String?
+  objective     String?
+  assessment    String?
+  plan          String?
+  aiDraftText   String?
+  signedAt      DateTime?
+  signedById    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+
+model Prescription {
+  id             String   @id @default(cuid())
+  clinicalNoteId String
+  clinicalNote   ClinicalNote @relation(fields: [clinicalNoteId], references: [id])
+  patientId      String
+  drugName       String
+  dosage         String
+  frequency      String
+  quantity       Int
+  refills        Int      @default(0)
+  status         PrescriptionStatus @default(ACTIVE)
+  prescribedAt   DateTime @default(now())
+}
+
+enum PrescriptionStatus {
+  ACTIVE
+  COMPLETED
+  CANCELED
+}
+
+
+model LabResult {
+  id         String   @id @default(cuid())
+  patientId  String
+  testName   String
+  panel      Json
+  abnormal   Boolean  @default(false)
+  resultedAt DateTime
+  createdAt  DateTime @default(now())
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  patientId  String
+  clinicId   String
+  s3Key      String
+  fileName   String
+  mimeType   String
+  category   DocumentCategory
+  uploadedById String
+  createdAt  DateTime @default(now())
+}
+
+enum DocumentCategory {
+  LAB_REPORT
+  IMAGING
+  REFERRAL
+  CONSENT_FORM
+  INSURANCE_CARD
+  OTHER
+}
+
+
+
+model Invoice {
+  id          String   @id @default(cuid())
+  clinicId    String
+  patientId   String
+  appointmentId String?
+  lineItems   Json
+  totalCents   Int
+  status      InvoiceStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  amountCents Int
+  method      String
+  paidAt      DateTime @default(now())
+}
+
+model InsuranceClaim {
+  id           String   @id @default(cuid())
+  invoiceId    String
+  cptCodes     String[]
+  icd10Codes   String[]
+  payerName    String
+  status        ClaimStatus @default(SUBMITTED)
+  submittedAt  DateTime @default(now())
+  adjudicatedAt DateTime?
+}
+
+enum InvoiceStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  DENIED
+  APPEALED
+}
+
+
+
+
+model MessageThread {
+  id        String   @id @default(cuid())
+  clinicId  String
+  subject   String
+  messages  Message[]
+  createdAt DateTime @default(now())
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id])
+  senderId   String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+}
+
+
+
+
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  clinicId    String
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  ipAddress  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([clinicId, entityType, entityId])
+}
+
+
+model StaffInvite {
+  id         String   @id @default(cuid())
+  clinicId   String
+  email      String
+  role       StaffRole
+  token      String   @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime @default(now())
 }
