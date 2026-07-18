@@ -399,3 +399,14 @@ model StaffInvite {
   acceptedAt DateTime?
   createdAt  DateTime @default(now())
 }
+
+
+model VisitTranscript {
+  id            String   @id @default(cuid())
+  appointmentId String   @unique
+  text          String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+
